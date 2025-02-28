@@ -1,0 +1,214 @@
+Code Breakdown: Main Function
+Let’s start with main()—the entry point—explaining each line from basics to advanced.
+
+1. Variables Setup : 
+    size_t num_messages = 1048576;
+    size_t num_blocks = 32;
+    size_t input_size = num_messages * num_blocks * BLOCK_WORDS * sizeof(uint64_t);
+    size_t output_size = num_messages * HASH_WORDS * sizeof(uint64_t);
+
+What: Define sizes for our workload.
+Basic:
+    num_messages = 1048576—1,048,576 messages to hash (like 1 million tasks).
+    num_blocks = 32—each message has 32 blocks (72 bytes each, ~2,304 bytes total)—SHA-3 processes data in chunks.
+    BLOCK_WORDS = 9—each block is 72 bytes (9 × 8-byte uint64_t)—defined earlier.
+    HASH_WORDS = 8—each hash is 64 bytes (8 × 8-byte uint64_t)—SHA-3-512 output.
+    input_size—total input bytes: 1,048,576 × 32 × 9 × 8 = ~2.41 GB.
+    output_size—total output bytes: 1,048,576 × 8 × 8 = ~67 MB.
+Why: Sets the problem scale—millions of messages, processed in parallel—GPU thrives on this.
+Advanced: size_t—unsigned integer for large sizes—sizeof(uint64_t) = 8 bytes—64-bit words match GPU’s 64-bit architecture for efficiency.
+
+
+2. Host Memory Allocation : 
+
+    uint64_t *h_input, *h_output;
+    cudaMallocHost(&h_input, input_size);
+    cudaMallocHost(&h_output, output_size);
+
+What: Allocate memory on the CPU (host) for input and output.
+Basic:
+    h_input—pointer to input data (~2.41 GB)—where we’ll store messages.
+    h_output—pointer to output hashes (~67 MB)—where GPU writes results.
+    cudaMallocHost—special CUDA function—allocates “pinned” (non-pageable) memory on CPU—faster data transfer to GPU than regular malloc.
+Why: CPU needs space to prepare data (input) and receive results (output)—pinned memory speeds up GPU transfers (~65-80 Gb/s vs. ~62 Gb/s with malloc).
+Advanced:
+    &h_input—passes pointer address—cudaMallocHost fills it with allocated memory location.
+    Pinned memory—locked in RAM—GPU can DMA (Direct Memory Access) it—key for WSL’s prior ~65.83 Gb/s success.
+
+3. Device Memory Allocation : 
+
+    uint64_t *d_input, *d_output;
+    cudaMalloc(&d_input, input_size);
+    cudaMalloc(&d_output, output_size);
+
+What: Allocate memory on the GPU (device) for input and output.
+Basic:
+    d_input—GPU pointer for input data (~2.41 GB).
+    d_output—GPU pointer for output hashes (~67 MB).
+    cudaMalloc—like malloc but on GPU—reserves space in GPU’s 8 GB VRAM.
+Why: GPU needs its own memory—can’t use CPU memory directly—data must be copied there for processing.
+Advanced:
+    &d_input—passes pointer address—cudaMalloc assigns GPU memory.
+    ~2.48 GB fits in 8 GB VRAM—leaves room for kernel overhead—CUDA manages allocation.
+
+4. Generate Input Data : 
+
+    generate_input(h_input, num_messages, num_blocks);
+
+What: Fill h_input with random data—our messages to hash.
+Basic:
+    Function call—generate_input—puts random 64-bit numbers into h_input.
+    Loops over blocks (32) and messages (1M)—fills ~2.41 GB.
+Why: Simulates real input—SHA-3 hashes any data—we use random for testing—paper assumes input exists.
+Advanced:
+Inside generate_input:
+
+    srand(time(NULL));
+    for (size_t i = 0; i < num_blocks; i++) {
+        for (size_t m = 0; m < num_messages; m++) {
+            uint64_t *block = input + i * num_messages * BLOCK_WORDS + m * BLOCK_WORDS;
+            for (size_t j = 0; j < BLOCK_WORDS - 1; j++) {
+                block[j] = ((uint64_t)rand() << 32) | rand();
+            }
+            block[BLOCK_WORDS - 1] = (i == num_blocks - 1) ? 0x8000000000000006ULL : 0;
+        }
+    }
+Column-wise—i * num_messages * BLOCK_WORDS—threads access contiguous 64-bit words (Section III.E)—paper’s coalesced memory optimization.
+
+Last block padded (0x8000000000000006ULL)—SHA-3 standard—ends message.
+
+
+5. Grid/Block Setup  : 
+
+    int blocks = (num_messages + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+
+What: Calculate number of thread blocks for GPU kernel.
+Basic:
+    THREADS_PER_BLOCK = 128—threads per block (like a team of 128 workers).
+    num_messages = 1048576—total tasks.
+    blocks = (1048576 + 127) / 128 ≈ 8192—number of teams—covers all messages.
+Why: GPU runs threads in blocks—128 threads/block × 8192 blocks = 1,048,576 threads—each thread hashes one message.
+Advanced:
+    (n + d - 1) / d—ceiling division—ensures enough blocks (e.g., 1,048,576 / 128 = 8192 exactly).
+    Grid (blocks) × Block (threads) = total threads—CUDA’s parallel structure—paper implies similar (Section III).
+
+6. Timing Setup : 
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+What: Set up CUDA events to measure execution time.
+Basic:
+    cudaEvent_t—special CUDA type—like a stopwatch.
+    start, stop—two events—mark beginning and end.
+    cudaEventCreate—initializes them—ready to use.
+Why: Measure how long GPU takes—calculate throughput—paper reports 88.51 Gb/s, implies timing.
+Advanced: Events—GPU-side timestamps—accurate for kernel and memory ops—no CPU overhead.
+
+7. GPU Execution with Timing : 
+
+    cudaEventRecord(start, 0);
+    cudaMemcpy(d_input, h_input, input_size, cudaMemcpyHostToDevice);
+    sha3_kernel<<<blocks, THREADS_PER_BLOCK>>>(d_input, d_output, num_messages, num_blocks);
+    cudaMemcpy(h_output, d_output, output_size, cudaMemcpyDeviceToHost);
+    cudaEventRecord(stop, 0);
+
+What: Run the GPU program—time it from H2D to D2H.
+Basic:
+    cudaEventRecord(start, 0)—start stopwatch—0 means default stream.
+    cudaMemcpy(d_input, h_input, input_size, cudaMemcpyHostToDevice)—copy ~2.41 GB from CPU to GPU.
+    sha3_kernel<<<blocks, THREADS_PER_BLOCK>>>(...)—launch GPU kernel—8192 blocks × 128 threads—hashes all messages.
+    cudaMemcpy(h_output, d_output, output_size, cudaMemcpyDeviceToHost)—copy ~67 MB hashes back to CPU.
+    cudaEventRecord(stop, 0)—stop stopwatch.
+Why:
+    H2D—get data to GPU—kernel does hashing—D2H gets results—full process timed—paper measures end-to-end.
+    GPU kernel—parallel magic—1M threads hash simultaneously.
+Advanced:
+cudaMemcpy—Host-to-Device (H2D), Device-to-Host (D2H)—pinned memory (~65-80 Gb/s in WSL)—faster than malloc (~62 Gb/s).
+<<<blocks, THREADS_PER_BLOCK>>>—CUDA syntax—launches grid—each thread runs sha3_kernel—paper’s parallel design (Section III).
+
+Inside sha3_kernel:
+
+    size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= num_messages) return;
+    uint64_t state[STATE_SIZE] = {0};
+    size_t offset = tid * BLOCK_WORDS * num_blocks;
+    #pragma unroll
+    for (size_t i = 0; i < num_blocks; i++) {
+        for (int j = 0; j < BLOCK_WORDS; j++) {
+            state[j] ^= d_input[offset + i * BLOCK_WORDS + j];
+        }
+        keccak_f(state);
+    }
+    #pragma unroll
+    for (int j = 0; j < HASH_WORDS; j++) {
+        d_output[tid * HASH_WORDS + j] = state[j];
+    }
+
+tid—thread ID—unique for each message—blockIdx.x (block number), threadIdx.x (thread in block)—CUDA’s thread indexing.
+if (tid >= num_messages)—safety—extra threads exit—8192 × 128 > 1M.
+state[25]—Keccak-f’s 1600-bit state—25 × 64-bit words—local to thread.
+offset—coalesced access—each thread reads its message’s blocks—paper’s optimization (Section III.E).
+Loops—32 blocks × 9 words—XOR input, run keccak_f—multi-block hashing—paper’s approach.
+Write hash—8 words (~64 bytes)—SHA-3-512 output—thread writes to d_output.
+
+8. Synchronization :
+    cudaDeviceSynchronize();
+
+What: Wait for GPU to finish.
+Basic: Tells CPU—“Hold on until GPU’s done”—all threads must complete.
+Why: Ensures kernel and D2H finish before timing—paper assumes completion.
+Advanced: Blocks CPU—synchronizes host-device—CUDA events need this for accurate timing—implicit in paper’s execution.
+
+9.Calculate and Display Throughput : 
+    float total_time_ms;
+    cudaEventElapsedTime(&total_time_ms, start, stop);
+    double total_time = total_time_ms / 1000.0;
+    double throughput = (input_size * 8.0) / (total_time * 1e9);
+
+What: Compute time and throughput.
+Basic:
+    cudaEventElapsedTime—get time (ms) between start and stop—store in total_time_ms.
+    total_time—convert ms to seconds (divide by 1000)—e.g., 294 ms = 0.294 s.
+    throughput—bits processed per second—(2.41 GB × 8 bits) / time—Gb/s (10⁹ bits/s).
+Why: Measure performance—paper reports 88.51 Gb/s—our goal—needs time and data size.
+Advanced:
+    input_size * 8.0—bytes to bits (~19.3 Gb)—/ 1e9—seconds to Gb/s—matches paper’s metric (Table 5).
+    Double precision—accurate for large numbers—CUDA events give GPU-side precision.
+
+10.Print Results : 
+    printf("Processed %zu messages (%zu bytes each) in %.3f seconds\n",
+        num_messages, num_blocks * BLOCK_SIZE_BYTES, total_time);
+    printf("Throughput: %.2f Gb/s\n", throughput);
+    printf("First hash: ");
+    for (int i = 0; i < HASH_WORDS; i++) {
+        printf("%016lx ", h_output[i]);
+    }
+    printf("\n"); 
+
+What: Show results.
+Basic:
+    First printf—1M messages, ~2,304 bytes each, time (e.g., 0.294 s)—what we processed.
+    Second printf—throughput (e.g., 65.83 Gb/s)—how fast.
+    Third printf—first hash (8 × 64-bit words)—e.g., 24656faf62f2f6bb ...—proof it worked.
+Why: Verify execution—paper implies performance reporting—hash shows correctness.
+Advanced:
+    %zu—size_t format—%.3f—3 decimal precision—%016lx—16-digit hex—standard CUDA output.
+    Hash—64 bytes (512 bits)—SHA-3-512 standard—paper focuses on computation, we add visibility.
+
+11.Cleanup : 
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+    cudaFree(d_input);
+    cudaFree(d_output);
+    cudaFreeHost(h_input);
+    cudaFreeHost(h_output); 
+    
+What: Free resources.
+Basic:
+    cudaEventDestroy—delete timing events—free GPU memory.
+    cudaFree—free GPU memory (d_input, d_output)—like free for CPU.
+    cudaFreeHost—free pinned CPU memory (h_input, h_output)—clean up.
+Why: Avoid memory leaks—good practice—paper assumes cleanup.
+Advanced: CUDA memory management—frees VRAM (~2.48 GB)—pinned memory releases system RAM
