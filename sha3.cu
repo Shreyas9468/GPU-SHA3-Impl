@@ -6,9 +6,9 @@
 
 // Define constants for SHA-3 structure—matches paper’s Keccak-f[1600]
 #define STATE_SIZE 25         // Keccak-f state: 25 x 64-bit words (1600 bits)
-#define BLOCK_SIZE_BYTES 72   // SHA-3-512 rate: 72 bytes per block (1088 bits)
-#define BLOCK_WORDS 9         // 72 bytes = 9 x 64-bit words (8 bytes each)
-#define HASH_SIZE_BYTES 64    // SHA-3-512 output: 64 bytes (512 bits)
+#define BLOCK_SIZE_BYTES 136  // SHA-3-512: 1088 bits = 136 bytes
+#define BLOCK_WORDS 17        // 136 bytes = 17 x 64-bit words
+#define HASH_SIZE_BYTES 64    // SHA-3-512 output: 512 bits = 64 bytes
 #define HASH_WORDS 8          // 64 bytes = 8 x 64-bit words
 #define ROUNDS 24             // Keccak-f rounds—24 iterations per block
 
@@ -112,14 +112,20 @@ __global__ void sha3_kernel(const uint64_t *d_input, uint64_t *d_output, size_t 
 
 // CPU function—fills input data—runs on host
 void generate_input(uint64_t *input, size_t num_messages, size_t num_blocks) {
-    srand(time(NULL)); // Seed random—different data each run—uses current time
-    for (size_t i = 0; i < num_blocks; i++) { // 32 blocks/message
-        for (size_t m = 0; m < num_messages; m++) { // 1M messages
-            uint64_t *block = input + i * num_messages * BLOCK_WORDS + m * BLOCK_WORDS; // Point to block—e.g., m=100, i=2—18,875,268—coalesced
-            for (size_t j = 0; j < BLOCK_WORDS - 1; j++) { // 8 words—64 bytes
-                block[j] = ((uint64_t)rand() << 32) | rand(); // Random 64-bit—e.g., 12345600000789—fill block
+    srand(time(NULL));
+    for (size_t i = 0; i < num_blocks; i++) {
+        for (size_t m = 0; m < num_messages; m++) {
+            uint64_t *block = input + i * num_messages * BLOCK_WORDS + m * BLOCK_WORDS;
+            for (size_t j = 0; j < BLOCK_WORDS - 2; j++) {
+                block[j] = ((uint64_t)rand() << 32) | rand();
             }
-            block[BLOCK_WORDS - 1] = (i == num_blocks - 1) ? 0x8000000000000006ULL : 0; // Last word—padding on block 31—SHA-3 standard
+            if (i == num_blocks - 1) {
+                block[BLOCK_WORDS - 2] = 0x06ULL;              // SHA-3 padding start
+                block[BLOCK_WORDS - 1] = 0x8000000000000000ULL; // SHA-3 padding end
+            } else {
+                block[BLOCK_WORDS - 2] = 0;
+                block[BLOCK_WORDS - 1] = 0;
+            }
         }
     }
 }
@@ -127,10 +133,10 @@ void generate_input(uint64_t *input, size_t num_messages, size_t num_blocks) {
 // Main—CPU orchestrates GPU hashing—paper’s workflow
 int main() {
     // Define workload—1M messages, 32 blocks each—~2.41 GB—paper’s scale (Table 5 implied)
-    size_t num_messages = 1048576; // 1M messages—each thread hashes one
-    size_t num_blocks = 32;        // 32 blocks/message—~2,304 bytes
-    size_t input_size = num_messages * num_blocks * BLOCK_WORDS * sizeof(uint64_t); // ~2.41 GB—1M * 32 * 9 * 8 bytes
-    size_t output_size = num_messages * HASH_WORDS * sizeof(uint64_t); // ~67 MB—1M * 8 * 8 bytes
+    size_t num_messages = 1048576; // 1M messages
+    size_t num_blocks = 8;         // 8 blocks/message—~1.14 GB total
+    size_t input_size = num_messages * num_blocks * BLOCK_WORDS * sizeof(uint64_t); // ~1.14 GB
+    size_t output_size = num_messages * HASH_WORDS * sizeof(uint64_t); // ~67 MB
 
     // Allocate pinned CPU memory—faster H2D/D2H—WSL-compatible—paper assumes efficient transfer (Section IV)
     uint64_t *h_input, *h_output; // Host pointers—input data, output hashes
