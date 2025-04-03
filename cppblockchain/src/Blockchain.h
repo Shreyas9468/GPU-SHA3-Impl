@@ -3,6 +3,7 @@
 #include "Block.h"
 #include "Transaction.h"
 #include "Wallet.h"
+#include <unordered_map>
 
 class Blockchain {
 private:
