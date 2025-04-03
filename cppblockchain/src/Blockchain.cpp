@@ -4,8 +4,8 @@
 
 // Constructor to initialize a Blockchain with the Genesis Block
 Blockchain::Blockchain() {
-    std::vector<Transaction> emptyTran sactions;  // Empty list for genesis block
-    chain.emplace_back(emptyTransactions, "0", 2);  // Genesis Block
+    std::vector<Transaction> emptyTransactions;  // Fixed typo
+    chain.emplace_back(emptyTransactions, "0", 2);
 }
 
 // Create a transaction and add it to the list of pending transactions
