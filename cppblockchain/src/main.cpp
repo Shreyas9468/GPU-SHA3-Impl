@@ -2,6 +2,7 @@
 #include <vector>
 #include "Blockchain.h"
 #include "Wallet.h"
+#include <iomanip>
 
 int main() {
     Blockchain myBlockchain;
@@ -46,17 +47,18 @@ int main() {
 
     // Validate and print the blockchain
     if (myBlockchain.isChainValid()) {
-        std::cout << "Blockchain is valid main .\n";
+        std::cout << "Blockchain is valid.\n";
     } else {
-        std::cout << "Blockchain is not valid main !\n";
+        std::cout << "Blockchain is not valid!\n";
     }
 
-    myBlockchain.printChain();
+    myBlockchain.printChain(); // Keep existing block printing
+    myBlockchain.printEntireChain(); // Add entire blockchain printing
 
     // Print wallet balances
     std::cout << "\nWallet Balances:\n";
     for (const auto& wallet : wallets) {
-        std::cout << "Wallet " << wallet->id << " has balance: " << wallet->balance << "\n";
+        std::cout << "Wallet " << wallet->id << " has balance: " << std::fixed << std::setprecision(2) << wallet->balance << "\n";
     }
 
     return 0;
