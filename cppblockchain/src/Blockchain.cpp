@@ -1,82 +1,133 @@
 #include "Blockchain.h"
 #include "Wallet.h"
 #include <iostream>
+#include <iomanip>
 
-// Constructor to initialize a Blockchain with the Genesis Block
 Blockchain::Blockchain() {
-    std::vector<Transaction> emptyTransactions;  // Fixed typo
+    std::vector<Transaction> emptyTransactions;
     chain.emplace_back(emptyTransactions, "0", 2);
 }
 
-// Create a transaction and add it to the list of pending transactions
-void Blockchain::createTransaction(Transaction transaction) {
-    pendingTransactions.push_back(transaction);
+void Blockchain::createTransaction(Transaction transaction, const std::vector<Wallet*>& wallets) {
+    if (isTransactionValid(transaction, wallets)) {
+        pendingTransactions.push_back(transaction);
+        std::cout << "Transaction from " << transaction.sender << " to " << transaction.receiver << " is valid.\n";
+    } else {
+        std::cout << "Transaction from " << transaction.sender << " to " << transaction.receiver << " is invalid!\n";
+    }
 }
 
-// Mine pending transactions into a new block and add it to the blockchain
 void Blockchain::minePendingTransactions() {
     Block newBlock(pendingTransactions, chain.back().blockHash, 2);
     chain.push_back(newBlock);
-    pendingTransactions.clear();  // Clear pending transactions
+    pendingTransactions.clear();
 }
 
-// Check if a block's hash is valid
 bool Blockchain::isBlockHashValid(const Block& block) {
-    return block.blockHash == block.generateHash();
-} 
-
-// Check if a transaction is valid
-bool Blockchain::isTransactionValid(const Transaction& tx) {
-    return tx.amount > 0;
+    std::string computed_hash = block.generateHash();
+    bool valid = block.blockHash == computed_hash;
+    if (!valid) {
+        std::cerr << "Hash mismatch in block:\n";
+        std::cerr << "Stored Hash: " << block.blockHash << "\n";
+        std::cerr << "Computed Hash: " << computed_hash << "\n";
+        std::cerr << "Nonce: " << block.getNonce() << "\n";
+        std::time_t block_time = block.getTimestamp();
+        struct tm* tm_info = std::gmtime(&block_time);
+        if (tm_info) {
+            std::cerr << "Timestamp: " << std::put_time(tm_info, "%Y-%m-%dT%H:%M:%S") << "\n";
+        } else {
+            std::cerr << "Timestamp: Invalid (" << block_time << ")\n";
+        }
+        std::cerr << "Previous Hash: " << block.getPreviousHash() << "\n";
+        std::cerr << "Transactions:\n";
+        for (const auto& tx : block.getTransactions()) {
+            std::cerr << "  Sender: " << tx.sender << ", Receiver: " << tx.receiver 
+                      << ", Amount: " << std::fixed << std::setprecision(6) << tx.amount << "\n";
+        }
+        std::stringstream ss;
+        if (tm_info) {
+            ss << std::put_time(tm_info, "%Y-%m-%dT%H:%M:%S");
+        } else {
+            ss << block_time;
+        }
+        for (const auto& tx : block.getTransactions()) {
+            ss << tx.sender << tx.receiver << std::fixed << std::setprecision(6) << tx.amount;
+        }
+        ss << block.getPreviousHash() << block.getNonce();
+        std::cerr << "Input String: " << ss.str() << "\n";
+    }
+    return valid;
 }
 
-// Check the validity of the entire blockchain
-bool Blockchain::isChainValid() {
-    for (int i = 1; i < chain.size(); ++i) {
-        Block currBlock = chain[i];
-        Block prevBlock = chain[i - 1];
-
-        if (!isBlockHashValid(currBlock)) {
+bool Blockchain::isTransactionValid(const Transaction& tx, const std::vector<Wallet*>& wallets) {
+    if (tx.amount <= 0) {
+        return false;
+    }
+    for (const auto& wallet : wallets) {
+        if (wallet->id == tx.sender && wallet->balance < tx.amount) {
             return false;
-        }
-
-        if (currBlock.prevHash != prevBlock.blockHash) {
-            return false;
-        }
-
-        for (const auto& tx : currBlock.transactions) {
-            RSA* publicKey = publicKeyMap[tx.sender];  // Retrieve publicKey based on tx.sender
-            if (!tx.isValid(publicKey)) {
-                return false;
-            }
         }
     }
     return true;
 }
 
-// Display the details of the entire blockchain
+bool Blockchain::isChainValid() {
+    for (int i = 1; i < chain.size(); ++i) {
+        Block currBlock = chain[i];
+        Block prevBlock = chain[i - 1];
+        std::cout << "This encountered 1 " << std::endl;
+        if (!isBlockHashValid(currBlock)) {
+            return false;
+        }
+        std::cout << "This passed 1" << std::endl;
+        if (currBlock.prevHash != prevBlock.blockHash) {
+            return false;
+        }
+        std::cout << "This passed 2" << std::endl;
+        for (const auto& tx : currBlock.transactions) {
+            RSA* publicKey = publicKeyMap[tx.sender];
+            if (!tx.isValid(publicKey)) {
+                return false;
+            }
+        }
+        std::cout << "This passed 3" << std::endl;
+    }
+    return true;
+}
+
 void Blockchain::printChain() {
     for (const auto& block : chain) {
-        std::cout << "Block Timestamp: " << block.timestamp << std::endl;
-        std::cout << "Previous Hash: " << block.prevHash << std::endl;
-        std::cout << "Block Hash: " << block.blockHash << std::endl;
-        std::cout << "Transactions:" << std::endl;
-
-        for (const auto& tx : block.transactions) {
-            std::cout << "  Sender: " << tx.sender << " Receiver: " << tx.receiver << " Amount: " << tx.amount << std::endl;
+        std::time_t block_time = block.getTimestamp();
+        struct tm* tm_info = std::gmtime(&block_time);
+        if (tm_info == nullptr) {
+            std::cerr << "Invalid timestamp: " << block_time << "\n";
+            continue;
         }
-
-        std::cout << "Nonce: " << block.nonce << std::endl;  // Display the nonce
-        std::cout << std::endl;
+        char buffer[32];
+        strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S", tm_info);
+        std::cout << "Block Timestamp: " << buffer << "\n";
+        std::cout << "Previous Hash: " << block.getPreviousHash() << "\n";
+        std::cout << "Block Hash: " << block.getHash() << "\n";
+        std::cout << "Transactions: " << "\n";
+        for (const auto& tx : block.getTransactions()) {
+            std::cout << "  Sender: " << tx.sender 
+                      << " Receiver: " << tx.receiver 
+                      << " Amount: " << tx.amount << "\n";
+        }
+        std::cout << "Nonce: " << block.getNonce() << "\n\n";
     }
 }
 
-// Notify wallets with updated transactions and balances
 void Blockchain::notifyWallets(std::vector<Wallet*>& wallets) {
+    // Update public key map
     for (auto& wallet : wallets) {
-        publicKeyMap[wallet->id] = wallet->publicKey;  // Store the public key in the map
-        for (auto& block : chain) {
-            wallet->updateBalance(block.transactions);
+        publicKeyMap[wallet->id] = wallet->publicKey;
+    }
+    // Update balances only for the latest block
+    if (!chain.empty()) {
+        const auto& latestBlock = chain.back();
+        for (auto& wallet : wallets) {
+            wallet->updateBalance(latestBlock.transactions);
         }
     }
 }

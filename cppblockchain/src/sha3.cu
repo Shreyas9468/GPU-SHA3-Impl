@@ -125,7 +125,7 @@ extern "C" void compute_sha3(const unsigned char *input, size_t input_len, unsig
     size_t num_blocks = (input_len + BLOCK_SIZE_BYTES - 1) / BLOCK_SIZE_BYTES;
     size_t padded_len = num_blocks * BLOCK_SIZE_BYTES;
     uint64_t *h_input;
-    cudaMallocHost(&h_input, padded_len / 8 * sizeof(uint64_t));
+    cudaMallocHost(&h_input, padded_len / 8 * sizeof(uint64_t)); 
 
     memcpy(h_input, input, input_len);
     if (input_len % BLOCK_SIZE_BYTES != 0) {
@@ -148,7 +148,7 @@ extern "C" void compute_sha3(const unsigned char *input, size_t input_len, unsig
 }
 
 extern "C" void mine_sha3(const unsigned char *input, size_t input_len, unsigned char *output, uint64_t *nonce, int difficulty) {
-    size_t num_blocks = 1024;
+    size_t num_blocks = 4096;
     size_t padded_len = ((input_len + 7) / 8 + BLOCK_WORDS - 1) / BLOCK_WORDS * BLOCK_WORDS * 8;
     uint64_t *h_input;
     cudaMallocHost(&h_input, padded_len);
