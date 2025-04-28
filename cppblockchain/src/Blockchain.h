@@ -19,5 +19,6 @@ public:
     bool isTransactionValid(const Transaction& tx, const std::vector<Wallet*>& wallets);
     bool isChainValid();
     void printChain();
+    void printEntireChain(); // New method
     void notifyWallets(std::vector<Wallet*>& wallets);
 };
