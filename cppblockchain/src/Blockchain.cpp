@@ -2,6 +2,7 @@
 #include "Wallet.h"
 #include <iostream>
 #include <iomanip>
+#include <sstream>
 
 Blockchain::Blockchain() {
     std::vector<Transaction> emptyTransactions;
@@ -116,6 +117,36 @@ void Blockchain::printChain() {
         }
         std::cout << "Nonce: " << block.getNonce() << "\n\n";
     }
+}
+
+void Blockchain::printEntireChain() {
+    std::cout << "\n=== Entire Blockchain ===\n";
+    std::cout << "Total Blocks: " << chain.size() << "\n";
+    std::cout << "-------------------------\n";
+    for (size_t i = 0; i < chain.size(); ++i) {
+        const Block& block = chain[i];
+        std::time_t block_time = block.getTimestamp();
+        struct tm* tm_info = std::gmtime(&block_time);
+        char buffer[32];
+        if (tm_info == nullptr) {
+            std::cerr << "Invalid timestamp for Block #" << i << ": " << block_time << "\n";
+            continue;
+        }
+        strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S", tm_info);
+        std::cout << "Block #" << i << ":\n";
+        std::cout << "  Timestamp: " << buffer << "\n";
+        std::cout << "  Previous Hash: " << block.getPreviousHash() << "\n";
+        std::cout << "  Block Hash: " << block.getHash() << "\n";
+        std::cout << "  Transactions: " << block.getTransactions().size() << "\n";
+        for (const auto& tx : block.getTransactions()) {
+            std::cout << "    Sender: " << tx.sender
+                      << ", Receiver: " << tx.receiver
+                      << ", Amount: " << std::fixed << std::setprecision(2) << tx.amount << "\n";
+        }
+        std::cout << "  Nonce: " << block.getNonce() << "\n";
+        std::cout << "-------------------------\n";
+    }
+    std::cout << "=== End of Blockchain ===\n";
 }
 
 void Blockchain::notifyWallets(std::vector<Wallet*>& wallets) {
