@@ -9,38 +9,38 @@ int main() {
     std::vector<Wallet*> wallets;
 
     // Initialize wallets
-    Wallet alice("Alice");
-    Wallet bob("Bob");
-    Wallet charlie("Charlie");
+    Wallet user1("User1");
+    Wallet user2("User2");
+    Wallet user3("User3");
 
-    alice.balance = 100;
-    bob.balance = 100;
-    charlie.balance = 10;
+    user1.balance = 100;
+    user2.balance = 100;
+    user3.balance = 10;
 
-    wallets.push_back(&alice);
-    wallets.push_back(&bob);
-    wallets.push_back(&charlie);
+    wallets.push_back(&user1);
+    wallets.push_back(&user2);
+    wallets.push_back(&user3);
 
-    // Transaction 1: Alice sends 50 to Bob
-    Transaction tx1 = alice.sendFunds(bob, 50);
+    // Transaction 1: User1 sends 50 to User2
+    Transaction tx1 = user1.sendFunds(user2, 50);
     myBlockchain.createTransaction(tx1, wallets);
     myBlockchain.minePendingTransactions();
     myBlockchain.notifyWallets(wallets);
 
-    // Transaction 2: Bob sends 30 to Charlie
-    Transaction tx2 = bob.sendFunds(charlie, 30);
+    // Transaction 2: User2 sends 30 to User3
+    Transaction tx2 = user2.sendFunds(user3, 30);
     myBlockchain.createTransaction(tx2, wallets);
     myBlockchain.minePendingTransactions();
     myBlockchain.notifyWallets(wallets);
 
-    // Transaction 3: Charlie sends 10 to Alice
-    Transaction tx3 = charlie.sendFunds(alice, 10);
+    // Transaction 3: User3 sends 10 to User1
+    Transaction tx3 = user3.sendFunds(user1, 10);
     myBlockchain.createTransaction(tx3, wallets);
     myBlockchain.minePendingTransactions();
     myBlockchain.notifyWallets(wallets);
 
-    // Transaction 4: Alice sends 20 to Charlie
-    Transaction tx4 = alice.sendFunds(charlie, 20);
+    // Transaction 4: User1 sends 20 to User3
+    Transaction tx4 = user1.sendFunds(user3, 20);
     myBlockchain.createTransaction(tx4, wallets);
     myBlockchain.minePendingTransactions();
     myBlockchain.notifyWallets(wallets);
