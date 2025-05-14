@@ -1,4 +1,3 @@
-// src/sha3.cu
 #include "sha3.h"
 #include <cuda_runtime.h>
 #include <cstdint>
@@ -27,7 +26,6 @@ __device__ inline uint64_t ROTL64(uint64_t x, int n) {
 }
 
 __device__ void keccak_f(uint64_t *state) {
-    const int rho_offsets[25] = {0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14};
     for (int round = 0; round < ROUNDS; round++) {
         uint64_t C[5], D[5];
         #pragma unroll
@@ -54,7 +52,10 @@ __device__ void keccak_f(uint64_t *state) {
                 int idx = x + 5 * y;
                 int new_x = y;
                 int new_y = (2 * x + 3 * y) % 5;
-                B[new_x + 5 * new_y] = ROTL64(state[idx], rho_offsets[idx]);
+                // Optimized ρ offset computation
+                int t = (x + 3 * y) % 5;
+                int offset = ((t + 1) * (t + 2) / 2) % 64;
+                B[new_x + 5 * new_y] = ROTL64(state[idx], offset);
             }
         }
         #pragma unroll
@@ -148,7 +149,7 @@ extern "C" void compute_sha3(const unsigned char *input, size_t input_len, unsig
 }
 
 extern "C" void mine_sha3(const unsigned char *input, size_t input_len, unsigned char *output, uint64_t *nonce, int difficulty) {
-    size_t num_blocks = 4096;
+    size_t num_blocks = 4096; 
     size_t padded_len = ((input_len + 7) / 8 + BLOCK_WORDS - 1) / BLOCK_WORDS * BLOCK_WORDS * 8;
     uint64_t *h_input;
     cudaMallocHost(&h_input, padded_len);
